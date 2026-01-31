@@ -1,0 +1,17 @@
+{
+  "name": "micro-commerce-lab",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev:orders": "pnpm --filter orders start:dev",
+    "dev:payments": "pnpm --filter payments-worker start:dev",
+    "dev": "pnpm -r --parallel start:dev",
+    "docker:up": "docker compose -f infra/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infra/docker-compose.yml down -v"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.26.2"
+}

@@ -2,6 +2,19 @@ import { Money } from './money';
 import { OrderItem } from './order-item';
 
 export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED';
+export type OrderEvent = 'PAY' | 'CANCEL';
+
+const TRANSITIONS: Record<
+  OrderStatus,
+  Partial<Record<OrderEvent, OrderStatus>>
+> = {
+  PENDING: {
+    PAY: 'PAID',
+    CANCEL: 'CANCELLED',
+  },
+  PAID: {},
+  CANCELLED: {},
+};
 
 export class Order {
   private constructor(
@@ -26,17 +39,19 @@ export class Order {
     return new Order(id, userId, items, total, 'PENDING');
   }
 
-  markPaid(): void {
-    if (this.status === 'CANCELLED') {
-      throw new Error('Cannot pay a cancelled order');
+  private transition(event: OrderEvent): void {
+    const nextStatus = TRANSITIONS[this.status][event];
+    if (!nextStatus) {
+      throw new Error(`invalid transition: ${this.status} -> ${event}`);
     }
-    this.status = 'PAID';
+    this.status = nextStatus;
+  }
+
+  markPaid(): void {
+    this.transition('PAY');
   }
 
   cancel(): void {
-    if (this.status === 'PAID') {
-      throw new Error('Cannot cancel a paid order');
-    }
-    this.status = 'CANCELLED';
+    this.transition('CANCEL');
   }
 }

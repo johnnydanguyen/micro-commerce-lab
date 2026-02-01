@@ -23,4 +23,22 @@ describe('Order domain', () => {
     order.markPaid();
     expect(() => order.cancel()).toThrow();
   });
+
+  it('allows PENDING -> PAID', () => {
+    const order = Order.create('u1', [new OrderItem('p1', 1, new Money(1000))]);
+    order.markPaid();
+    expect(order.status).toBe('PAID');
+  });
+
+  it('rejects PAID -> CANCELLED', () => {
+    const order = Order.create('u1', [new OrderItem('p1', 1, new Money(1000))]);
+    order.markPaid();
+    expect(() => order.cancel()).toThrow(/invalid transition/);
+  });
+
+  it('rejects CANCELLED -> PAID', () => {
+    const order = Order.create('u1', [new OrderItem('p1', 1, new Money(1000))]);
+    order.cancel();
+    expect(() => order.markPaid()).toThrow(/invalid transition/);
+  });
 });

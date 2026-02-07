@@ -16,6 +16,14 @@ const TRANSITIONS: Record<
   CANCELLED: {},
 };
 
+export type OrderRow = {
+  id: string;
+  userId: string;
+  status: OrderStatus;
+  items: OrderItem[];
+  totalCents: number;
+};
+
 export class Order {
   private constructor(
     public readonly id: string,
@@ -37,6 +45,26 @@ export class Order {
     const id = crypto.randomUUID();
 
     return new Order(id, userId, items, total, 'PENDING');
+  }
+
+  static rehydrate(params: OrderRow): Order {
+    const { id, userId, status, items, totalCents } = params;
+
+    if (!id) throw new Error('id required');
+    if (!userId) throw new Error('userId required');
+    if (!items || items.length === 0) throw new Error('items required');
+
+    const computed = items.reduce(
+      (acc, it) => acc.add(it.total()),
+      new Money(0),
+    );
+    if (computed.cents !== totalCents) {
+      throw new Error(
+        `corrupted total: expected ${computed.cents}, got ${totalCents}`,
+      );
+    }
+
+    return new Order(id, userId, items, new Money(totalCents), status);
   }
 
   private transition(event: OrderEvent): void {

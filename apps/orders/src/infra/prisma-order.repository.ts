@@ -1,5 +1,5 @@
 import { OrderRepository } from './order.repository';
-import { Order } from '../domain/order';
+import { Order, OrderStatus } from '../domain/order';
 import { OrderItem } from '../domain/order-item';
 import { Money } from '../domain/money';
 import { PrismaService } from './prisma.service';
@@ -33,6 +33,45 @@ export class PrismaOrderRepository implements OrderRepository {
     });
   }
 
+  async list(params: {
+    limit: number;
+    nextCursor?: string;
+  }): Promise<{ orders: Order[]; nextCursor: string | null }> {
+    const take = Math.min(Math.max(params.limit, 1), 100);
+
+    const rows = await this.prisma.order.findMany({
+      take: take + 1, // lấy dư 1 để biết còn trang sau
+      ...(params.nextCursor
+        ? {
+            skip: 1,
+            cursor: { id: params.nextCursor },
+          }
+        : {}),
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: { items: true },
+    });
+
+    const hasNext = rows.length > take;
+    const page = hasNext ? rows.slice(0, take) : rows;
+
+    const orders = page.map((row) => {
+      const items = row.items.map(
+        (it) =>
+          new OrderItem(it.productId, it.qty, new Money(it.unitPriceCents)),
+      );
+      return Order.rehydrate({
+        id: row.id,
+        userId: row.userId,
+        status: row.status as OrderStatus,
+        items,
+        totalCents: row.totalCents, // nếu snapshot có
+      });
+    });
+
+    const nextCursor = hasNext ? page[page.length - 1].id : null;
+    return { orders, nextCursor };
+  }
+
   async findById(id: string): Promise<Order | null> {
     const row = await this.prisma.order.findUnique({
       where: { id },
@@ -45,17 +84,12 @@ export class PrismaOrderRepository implements OrderRepository {
       (it) => new OrderItem(it.productId, it.qty, new Money(it.unitPriceCents)),
     );
 
-    // Re-hydrate domain without breaking invariants.
-    // Cách sạch: tạo một factory "rehydrate" trong Order.
-    // Day 3 làm nhanh: dùng create rồi set status (vì status chỉ 3 cái).
-    const order = Order.create(row.userId, items);
-
-    // override id & status theo DB (hack nhẹ cho Day 3)
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-    (order as any).id = row.id;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-    order.status = row.status as any;
-
-    return order;
+    return Order.rehydrate({
+      id: row.id,
+      userId: row.userId,
+      status: row.status as OrderStatus,
+      totalCents: row.totalCents,
+      items,
+    });
   }
 }

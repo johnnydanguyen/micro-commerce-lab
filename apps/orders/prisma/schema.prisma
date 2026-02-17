@@ -35,3 +35,14 @@ model OrderItem {
 
   @@index([orderId])
 }
+
+model IdempotencyKey {
+  key          String   @id
+  route        String
+  requestHash  String
+  statusCode   Int
+  responseBody Json
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}

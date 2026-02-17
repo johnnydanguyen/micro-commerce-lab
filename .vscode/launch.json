@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Orders API (debug)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start:debug"],
+      "cwd": "${workspaceFolder}/apps/orders",
+      "console": "integratedTerminal",
+      "restart": true,
+      "envFile": "${workspaceFolder}/apps/orders/.env"
+    }
+  ]
+}

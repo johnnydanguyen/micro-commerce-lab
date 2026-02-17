@@ -20,3 +20,7 @@ Feb 2, 2026
 - [x] GET /orders/:id
 - [x] GET /orders list + nextCursor
 - [x] index orders(createdAt, id)
+
+8 Feb, 2026
+
+- [x]

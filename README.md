@@ -23,4 +23,8 @@ Feb 2, 2026
 
 8 Feb, 2026
 
-- [x]
+- [x] Create new order with idempotent key handling
+
+19 Feb, 2026
+
+- [x] Setup payment producer and consumer

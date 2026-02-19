@@ -22,7 +22,7 @@ type Replay =
 export class IdempotencyInterceptor implements NestInterceptor {
   constructor(private readonly idem: IdempotencyService) {}
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = context.switchToHttp();
     const req = http.getRequest<Request>();
 

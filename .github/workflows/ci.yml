@@ -1,42 +1,64 @@
 name: ci
 
 on:
-    push:
-        branches: [main]
-    pull_request:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            
-            - uses: pnpm/action-setup@v4
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orders_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d orders_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orders_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
 
-            - uses: actions/setup-node@v4
-              with:
-                  node-version: 20
-                  cache: "pnpm"
+      - uses: pnpm/action-setup@v4
 
-            - name: Install
-              run: pnpm install --frozen-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
 
-            - name: Lint (orders)
-              run: pnpm --filter orders lint
-              continue-on-error: false
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
-            - name: Lint (payments-worker)
-              run: pnpm --filter payments-worker lint
-              continue-on-error: false
+      - name: Generate Prisma Client (orders)
+        run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
 
-            - name: Test (orders)
-              run: pnpm --filter orders test
+      - name: Apply Prisma Migrations (orders)
+        run: pnpm --filter orders exec prisma migrate deploy --schema prisma/schema.prisma
 
-            - name: Test (payments-worker)
-              run: pnpm --filter payments-worker test
+      - name: Lint (orders)
+        run: pnpm --filter orders lint
+        continue-on-error: false
 
-            - name: Build (orders)
-              run: pnpm --filter orders build
+      - name: Lint (payments-worker)
+        run: pnpm --filter payments-worker lint
+        continue-on-error: false
 
-            - name: Build (payments-worker)
-              run: pnpm --filter payments-worker build
+      - name: Test (orders)
+        run: pnpm --filter orders test
+
+      - name: Test (payments-worker)
+        run: pnpm --filter payments-worker test
+
+      - name: Build (orders)
+        run: pnpm --filter orders build
+
+      - name: Build (payments-worker)
+        run: pnpm --filter payments-worker build

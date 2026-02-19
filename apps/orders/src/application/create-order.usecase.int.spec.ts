@@ -4,9 +4,10 @@ import { PrismaOrderRepository } from '../infra/prisma-order.repository';
 import { CreateOrderUseCase } from './create-order.usecase';
 
 import { config } from 'dotenv';
+import { PaymentsProducer } from '../queues/payments.producer';
 config();
 
-describe('CreateOrderUseCase (integration)', () => {
+describe('Integration test for CreateOrderUseCase', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
@@ -27,9 +28,15 @@ describe('CreateOrderUseCase (integration)', () => {
     if (prisma) await prisma.$disconnect();
   });
 
-  it('persists order to Postgres', async () => {
+  it('should persist order', async () => {
     const repo = new PrismaOrderRepository(prisma);
-    const uc = new CreateOrderUseCase(repo);
+    const paymentsProducer: Pick<PaymentsProducer, 'enqueueProcessPayment'> = {
+      enqueueProcessPayment: jest.fn().mockResolvedValue(undefined),
+    };
+    const uc = new CreateOrderUseCase(
+      repo,
+      paymentsProducer as PaymentsProducer,
+    );
 
     const out = await uc.execute({
       userId: 'u1',

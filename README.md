@@ -28,3 +28,8 @@ Feb 2, 2026
 19 Feb, 2026
 
 - [x] Setup payment producer and consumer
+
+22 Feb, 2026
+
+- [x] Add new controller to mark order paid
+- [x] Call mark order paid in payment consumer

@@ -5,6 +5,7 @@ import {
   Param,
   Query,
   Post,
+  Patch,
   Body,
   UseInterceptors,
   HttpCode,
@@ -16,6 +17,7 @@ import {
   type CreateOrderInput,
   CreateOrderUseCase,
 } from './application/create-order.usecase';
+import { MarkOrderPaidUseCase } from './application/mark-order-paid.usecase';
 
 @Controller('orders')
 export class OrdersController {
@@ -23,6 +25,7 @@ export class OrdersController {
     private readonly getOrderUC: GetOrderUseCase,
     private readonly listOrdersUC: ListOrdersUseCase,
     private readonly createOrderUC: CreateOrderUseCase,
+    private readonly markOrderPaidUC: MarkOrderPaidUseCase,
   ) {}
 
   @Get()
@@ -44,5 +47,10 @@ export class OrdersController {
   @UseInterceptors(IdempotencyInterceptor)
   async create(@Body() body: CreateOrderInput) {
     return this.createOrderUC.execute(body);
+  }
+
+  @Patch(':id/mark-paid')
+  async markPaid(@Param('id') id: string) {
+    return this.markOrderPaidUC.execute({ orderId: id });
   }
 }

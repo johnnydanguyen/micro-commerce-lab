@@ -13,7 +13,9 @@ import { GetOrderUseCase } from './application/get-order.usecase';
 import { OrderRepository } from './infra/order.repository';
 import { ListOrdersUseCase } from './application/list-orders.usecase';
 import { CreateOrderUseCase } from './application/create-order.usecase';
+import { MarkOrderPaidUseCase } from './application/mark-order-paid.usecase';
 import { PaymentsProducer } from './queues/payments.producer';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { PaymentsProducer } from './queues/payments.producer';
       envFilePath: '.env',
     }),
     QueuesModule,
+    HttpModule,
   ],
   controllers: [AppController, OrdersController],
   providers: [
@@ -49,6 +52,11 @@ import { PaymentsProducer } from './queues/payments.producer';
       useFactory: (repo: OrderRepository, paymentsProducer: PaymentsProducer) =>
         new CreateOrderUseCase(repo, paymentsProducer),
       inject: [ORDER_REPOSITORY, PaymentsProducer],
+    },
+    {
+      provide: MarkOrderPaidUseCase,
+      useFactory: (repo: OrderRepository) => new MarkOrderPaidUseCase(repo),
+      inject: [ORDER_REPOSITORY],
     },
   ],
 })

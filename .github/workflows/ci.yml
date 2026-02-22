@@ -6,7 +6,55 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client (orders)
+        run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
+
+      - name: Lint (orders)
+        run: pnpm --filter orders lint
+
+      - name: Lint (payments-worker)
+        run: pnpm --filter payments-worker lint
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client (orders)
+        run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
+
+      - name: Unit Test (orders)
+        run: pnpm --filter orders test -- --testPathPattern='\.spec\.ts$' --testPathIgnorePatterns='int\.spec\.ts$'
+
+      # - name: Unit Test (payments-worker)
+      #   run: pnpm --filter payments-worker test
+
+  integration-test:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -43,19 +91,27 @@ jobs:
       - name: Apply Prisma Migrations (orders)
         run: pnpm --filter orders exec prisma migrate deploy --schema prisma/schema.prisma
 
-      - name: Lint (orders)
-        run: pnpm --filter orders lint
-        continue-on-error: false
+      - name: Integration Test (orders)
+        run: pnpm --filter orders test -- --testPathPattern='int\.spec\.ts$'
 
-      - name: Lint (payments-worker)
-        run: pnpm --filter payments-worker lint
-        continue-on-error: false
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, unit-test, integration-test]
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Test (orders)
-        run: pnpm --filter orders test
+      - uses: pnpm/action-setup@v4
 
-      - name: Test (payments-worker)
-        run: pnpm --filter payments-worker test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client (orders)
+        run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
 
       - name: Build (orders)
         run: pnpm --filter orders build

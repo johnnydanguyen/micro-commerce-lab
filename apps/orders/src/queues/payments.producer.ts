@@ -9,6 +9,7 @@ export class PaymentsProducer {
   async enqueueProcessPayment(input: { orderId: string; totalCents: number }) {
     console.log('Enqueuing payment processing for order', input.orderId);
     await this.paymentsQueue.add('process-payment', input, {
+      jobId: `process-payment-${input.orderId}`,
       attempts: 5,
       backoff: { type: 'exponential', delay: 2000 },
       removeOnComplete: 1000,

@@ -3,6 +3,7 @@ import { Order, OrderStatus } from '../domain/order';
 import { OrderItem } from '../domain/order-item';
 import { Money } from '../domain/money';
 import { PrismaService } from './prisma.service';
+import { OutboxStatus } from '@prisma/client';
 
 export class PrismaOrderRepository implements OrderRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -30,6 +31,40 @@ export class PrismaOrderRepository implements OrderRepository {
         status: order.status,
         totalCents: order.totalAmount.cents,
       },
+    });
+  }
+
+  async saveWithOutbox(
+    order: Order,
+    outbox: { eventType: string; payload: unknown },
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.create({
+        data: {
+          id: order.id,
+          userId: order.userId,
+          status: order.status,
+          totalCents: order.totalAmount.cents,
+          items: {
+            createMany: {
+              data: order.items.map((it) => ({
+                id: crypto.randomUUID(),
+                productId: it.productId,
+                qty: it.qty,
+                unitPriceCents: it.unitPrice.cents,
+              })),
+            },
+          },
+        },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: outbox.eventType,
+          payload: outbox.payload as object,
+          status: OutboxStatus.PENDING,
+        },
+      });
     });
   }
 
@@ -90,6 +125,52 @@ export class PrismaOrderRepository implements OrderRepository {
       status: row.status as OrderStatus,
       totalCents: row.totalCents,
       items,
+    });
+  }
+
+  async listPendingOutbox(limit: number) {
+    const rows = await this.prisma.outboxEvent.findMany({
+      where: {
+        status: OutboxStatus.PENDING,
+        availableAt: { lte: new Date() },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      take: Math.min(Math.max(limit, 1), 100),
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      eventType: row.eventType,
+      payload: row.payload,
+      retryCount: row.retryCount,
+    }));
+  }
+
+  async markOutboxSent(id: string): Promise<void> {
+    await this.prisma.outboxEvent.update({
+      where: { id },
+      data: {
+        status: OutboxStatus.SENT,
+        sentAt: new Date(),
+        lastError: null,
+      },
+    });
+  }
+
+  async markOutboxRetry(id: string, error: string): Promise<void> {
+    const row = await this.prisma.outboxEvent.findUnique({ where: { id } });
+    if (!row) return;
+
+    const nextRetryCount = row.retryCount + 1;
+    const delaySeconds = Math.min(2 ** nextRetryCount, 300);
+
+    await this.prisma.outboxEvent.update({
+      where: { id },
+      data: {
+        retryCount: { increment: 1 },
+        lastError: error.slice(0, 500),
+        availableAt: new Date(Date.now() + delaySeconds * 1000),
+      },
     });
   }
 }

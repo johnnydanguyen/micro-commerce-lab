@@ -4,7 +4,6 @@ import { PrismaOrderRepository } from '../infra/prisma-order.repository';
 import { CreateOrderUseCase } from './create-order.usecase';
 
 import { config } from 'dotenv';
-import { PaymentsProducer } from '../queues/payments.producer';
 config();
 
 describe('Integration test for CreateOrderUseCase', () => {
@@ -22,6 +21,7 @@ describe('Integration test for CreateOrderUseCase', () => {
     // dọn dữ liệu để test repeatable
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
+    await prisma.outboxEvent.deleteMany();
   });
 
   afterAll(async () => {
@@ -30,13 +30,7 @@ describe('Integration test for CreateOrderUseCase', () => {
 
   it('should persist order', async () => {
     const repo = new PrismaOrderRepository(prisma);
-    const paymentsProducer: Pick<PaymentsProducer, 'enqueueProcessPayment'> = {
-      enqueueProcessPayment: jest.fn().mockResolvedValue(undefined),
-    };
-    const uc = new CreateOrderUseCase(
-      repo,
-      paymentsProducer as PaymentsProducer,
-    );
+    const uc = new CreateOrderUseCase(repo);
 
     const out = await uc.execute({
       userId: 'u1',
@@ -54,5 +48,10 @@ describe('Integration test for CreateOrderUseCase', () => {
     expect(dbOrder).not.toBeNull();
     expect(dbOrder!.totalCents).toBe(4500);
     expect(dbOrder!.items.length).toBe(2);
+
+    const outbox = await prisma.outboxEvent.findMany({
+      where: { eventType: 'OrderCreated' },
+    });
+    expect(outbox.length).toBe(1);
   });
 });

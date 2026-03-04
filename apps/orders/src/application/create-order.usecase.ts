@@ -1,4 +1,3 @@
-import { PaymentsProducer } from '../queues/payments.producer';
 import { Money } from '../domain/money';
 import { Order, OrderStatus } from '../domain/order';
 import { OrderItem } from '../domain/order-item';
@@ -20,10 +19,7 @@ export type CreateOrderOutput = {
 };
 
 export class CreateOrderUseCase {
-  constructor(
-    private readonly repo: OrderRepository,
-    private readonly paymentsProducer: PaymentsProducer,
-  ) {}
+  constructor(private readonly repo: OrderRepository) {}
 
   async execute(input: CreateOrderInput): Promise<CreateOrderOutput> {
     const items = input.items.map(
@@ -31,11 +27,12 @@ export class CreateOrderUseCase {
     );
 
     const order = Order.create(input.userId, items);
-    await this.repo.save(order);
-
-    await this.paymentsProducer.enqueueProcessPayment({
-      orderId: order.id,
-      totalCents: order.totalAmount.cents,
+    await this.repo.saveWithOutbox(order, {
+      eventType: 'OrderCreated',
+      payload: {
+        orderId: order.id,
+        totalCents: order.totalAmount.cents,
+      },
     });
 
     return {

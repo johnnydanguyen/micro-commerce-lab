@@ -33,3 +33,8 @@ Feb 2, 2026
 
 - [x] Add new controller to mark order paid
 - [x] Call mark order paid in payment consumer
+
+4 Mar, 2026
+
+- [x] Setup Outbox Event table
+- [x] Setup Outbox Processor & Publisher to handle payment process after creating orders

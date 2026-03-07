@@ -21,6 +21,11 @@ variable "artifact_repository" {
   description = "Artifact Registry Docker repository name"
   default     = "containers"
 }
+variable "runtime_service_account_email" {
+  type        = string
+  description = "Existing service account email for Cloud Run runtime. Leave empty to use Cloud Run default."
+  default     = ""
+}
 
 resource "google_project_service" "run" {
   service = "run.googleapis.com"
@@ -39,17 +44,12 @@ resource "google_artifact_registry_repository" "micro_commerce" {
   depends_on = [google_project_service.artifactregistry]
 }
 
-resource "google_service_account" "cloud_run_runtime" {
-  account_id   = "${var.service}-runtime"
-  display_name = "${var.service} Cloud Run runtime"
-}
-
 resource "google_cloud_run_v2_service" "svc" {
   name     = var.service
   location = var.region
 
   template {
-    service_account = google_service_account.cloud_run_runtime.email
+    service_account = var.runtime_service_account_email != "" ? var.runtime_service_account_email : null
 
     containers {
       image = var.image

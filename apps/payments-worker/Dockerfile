@@ -9,7 +9,6 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/orders/package.json apps/orders/package.json
 COPY apps/payments-worker/package.json apps/payments-worker/package.json
-COPY libs libs
 
 RUN pnpm install --frozen-lockfile
 

@@ -1,0 +1,82 @@
+name: cd
+
+# CD chi chay khi CI workflow da chay xong tren nhanh main.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+env:
+  GCP_REGION: us-central1
+  AR_REPOSITORY: micro-commerce
+  TF_DIR: .cicd/.terraform
+  SERVICE_NAME: orders
+
+jobs:
+  deploy-orders:
+    # Chi deploy neu CI thanh cong.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout dung commit ma CI vua verify.
+      - name: Checkout source at CI SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Login GCP bang service account key trong GitHub Secrets.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Setup Terraform CLI de chay init/plan/apply.
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Tao full image URL theo immutable tag = commit SHA.
+      - name: Build deploy image reference
+        id: image
+        run: |
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.event.workflow_run.head_sha }}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Deploying image: $IMAGE"
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      # Plan de thay ro thay doi truoc khi apply.
+      - name: Terraform plan (orders)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
+            -var="service=${{ env.SERVICE_NAME }}" \
+            -var="image=${{ steps.image.outputs.image }}"
+
+      # Apply tu dong sau khi CI da pass.
+      - name: Terraform apply (orders)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform apply -auto-approve \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
+            -var="service=${{ env.SERVICE_NAME }}" \
+            -var="image=${{ steps.image.outputs.image }}"
+
+      # Smoke test endpoint /health de fail som neu deploy loi runtime.
+      - name: Smoke test /health
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          URL=$(terraform output -raw service_url)
+          echo "Service URL: $URL"
+          curl -fsS "$URL/health"

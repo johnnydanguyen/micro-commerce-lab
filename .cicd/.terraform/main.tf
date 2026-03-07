@@ -21,10 +21,6 @@ variable "artifact_repository" {
   description = "Artifact Registry Docker repository name"
   default     = "containers"
 }
-variable "deployer_member" {
-  type        = string
-  description = "Principal applying Terraform, e.g. user:me@example.com or serviceAccount:ci@project.iam.gserviceaccount.com"
-}
 
 resource "google_project_service" "run" {
   service = "run.googleapis.com"
@@ -46,12 +42,6 @@ resource "google_artifact_registry_repository" "micro_commerce" {
 resource "google_service_account" "cloud_run_runtime" {
   account_id   = "${var.service}-runtime"
   display_name = "${var.service} Cloud Run runtime"
-}
-
-resource "google_service_account_iam_member" "deployer_act_as_runtime" {
-  service_account_id = google_service_account.cloud_run_runtime.name
-  role               = "roles/iam.serviceAccountUser"
-  member             = var.deployer_member
 }
 
 resource "google_cloud_run_v2_service" "svc" {
@@ -79,7 +69,6 @@ resource "google_cloud_run_v2_service" "svc" {
   depends_on = [
     google_project_service.run,
     google_artifact_registry_repository.micro_commerce,
-    google_service_account_iam_member.deployer_act_as_runtime,
   ]
 }
 

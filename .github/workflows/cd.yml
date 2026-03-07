@@ -6,6 +6,12 @@ on:
     workflows: [ci]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag override (default: commit SHA)"
+        required: false
+        type: string
 
 env:
   GCP_REGION: us-central1
@@ -15,8 +21,8 @@ env:
 
 jobs:
   deploy-orders:
-    # Chi deploy neu CI thanh cong.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Tu dong deploy neu CI thanh cong, hoac cho phep chay tay.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +30,7 @@ jobs:
       - name: Checkout source at CI SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       # Login GCP bang service account key trong GitHub Secrets.
       - name: Authenticate to Google Cloud
@@ -40,10 +46,24 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       # Tao full image URL theo immutable tag = commit SHA.
+      - name: Resolve deploy tag
+        id: deploy_tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            TAG="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using tag: $TAG"
+
+      # Tao full image URL theo resolved tag.
       - name: Build deploy image reference
         id: image
         run: |
-          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.event.workflow_run.head_sha }}"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ steps.deploy_tag.outputs.tag }}"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "Deploying image: $IMAGE"
 

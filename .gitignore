@@ -54,3 +54,10 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Terraform local artifacts
+.cicd/.terraform/.terraform/
+.cicd/.terraform/terraform.tfstate
+.cicd/.terraform/terraform.tfstate.*
+.cicd/.terraform/*.tfvars
+.cicd/.terraform/*.tfvars.json

@@ -20,19 +20,35 @@ env:
   SERVICE_NAME: orders
 
 jobs:
+  setup-prisma:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client (orders)
+        run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
+
   deploy-orders:
-    # Tu dong deploy neu CI thanh cong, hoac cho phep chay tay.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: setup-prisma
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout dung commit ma CI vua verify.
       - name: Checkout source at CI SHA
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
-      # Login GCP bang service account key trong GitHub Secrets.
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -40,6 +56,17 @@ jobs:
 
       - name: Set up gcloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve runtime service account
+        id: runtime_sa
+        run: |
+          if [ -n "${{ secrets.RUNTIME_SA_EMAIL }}" ]; then
+            SA_EMAIL="${{ secrets.RUNTIME_SA_EMAIL }}"
+          else
+            SA_EMAIL="$(gcloud config get-value account)"
+          fi
+          echo "email=$SA_EMAIL" >> "$GITHUB_OUTPUT"
+          echo "Using runtime service account: $SA_EMAIL"
 
       # Setup Terraform CLI de chay init/plan/apply.
       - name: Set up Terraform
@@ -67,6 +94,10 @@ jobs:
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "Deploying image: $IMAGE"
 
+      # Can docker pull image tu Artifact Registry de chay migrate.
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
       - name: Terraform init
         working-directory: ${{ env.TF_DIR }}
         run: terraform init
@@ -80,7 +111,13 @@ jobs:
             -var="region=${{ env.GCP_REGION }}" \
             -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
             -var="service=${{ env.SERVICE_NAME }}" \
-            -var="image=${{ steps.image.outputs.image }}"
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="database_url=${{ secrets.DATABASE_URL }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
 
       # Apply tu dong sau khi CI da pass.
       - name: Terraform apply (orders)
@@ -91,7 +128,13 @@ jobs:
             -var="region=${{ env.GCP_REGION }}" \
             -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
             -var="service=${{ env.SERVICE_NAME }}" \
-            -var="image=${{ steps.image.outputs.image }}"
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="database_url=${{ secrets.DATABASE_URL }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
 
       # Smoke test endpoint /health de fail som neu deploy loi runtime.
       - name: Smoke test /health

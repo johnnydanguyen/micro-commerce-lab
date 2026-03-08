@@ -23,4 +23,4 @@ ENV NODE_ENV=production
 COPY --from=build /workspace /workspace
 
 EXPOSE 3001
-CMD ["node", "apps/payments-worker/dist/main"]
+CMD ["node", "apps/payments-worker/dist/src/main.js"]

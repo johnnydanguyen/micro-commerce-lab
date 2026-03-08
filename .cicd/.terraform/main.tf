@@ -21,27 +21,50 @@ variable "artifact_repository" {
   description = "Artifact Registry Docker repository name"
   default     = "containers"
 }
-variable "runtime_service_account_email" {
+variable "database_url" {
+  type        = string
+  description = "Orders service DATABASE_URL"
+  sensitive   = true
+}
+variable "redis_host" {
+  type        = string
+  description = "Redis host for BullMQ"
+  default     = "localhost"
+}
+variable "redis_port" {
+  type        = string
+  description = "Redis port for BullMQ"
+  default     = "6379"
+}
+variable "redis_username" {
+  type        = string
+  description = "Redis username for BullMQ (if applicable)"
+  default     = ""
+}
+variable "redis_password" {
+  type        = string
+  description = "Redis password for BullMQ (if applicable)"
+  default     = ""
+}
+variable "service_account" {
   type        = string
   description = "Existing service account email for Cloud Run runtime. Leave empty to use Cloud Run default."
   default     = ""
 }
-
-resource "google_project_service" "run" {
-  service = "run.googleapis.com"
+variable "runtime_service_account_email" {
+  type        = string
+  description = "Preferred runtime service account email (kept for workflow compatibility)."
+  default     = ""
 }
 
-resource "google_project_service" "artifactregistry" {
-  service = "artifactregistry.googleapis.com"
+locals {
+  effective_service_account = var.runtime_service_account_email != "" ? var.runtime_service_account_email : var.service_account
 }
-
 resource "google_artifact_registry_repository" "micro_commerce" {
   location      = var.region
   repository_id = var.artifact_repository
   description   = "Docker images for ${var.service}"
   format        = "DOCKER"
-
-  depends_on = [google_project_service.artifactregistry]
 }
 
 resource "google_cloud_run_v2_service" "svc" {
@@ -49,7 +72,7 @@ resource "google_cloud_run_v2_service" "svc" {
   location = var.region
 
   template {
-    service_account = var.runtime_service_account_email != "" ? var.runtime_service_account_email : null
+    service_account = local.effective_service_account != "" ? local.effective_service_account : null
 
     containers {
       image = var.image
@@ -57,6 +80,31 @@ resource "google_cloud_run_v2_service" "svc" {
       env {
         name  = "NODE_ENV"
         value = "production"
+      }
+
+      env {
+        name  = "DATABASE_URL"
+        value = var.database_url
+      }
+
+      env {
+        name  = "REDIS_HOST"
+        value = var.redis_host
+      }
+
+      env {
+        name  = "REDIS_USERNAME"
+        value = var.redis_username
+      }
+
+      env {
+        name  = "REDIS_PASSWORD"
+        value = var.redis_password
+      }
+
+      env {
+        name  = "REDIS_PORT"
+        value = var.redis_port
       }
     }
 
@@ -67,7 +115,6 @@ resource "google_cloud_run_v2_service" "svc" {
   }
 
   depends_on = [
-    google_project_service.run,
     google_artifact_registry_repository.micro_commerce,
   ]
 }

@@ -19,9 +19,7 @@ RUN pnpm --filter orders build
 
 FROM node:20-alpine AS runtime
 WORKDIR /workspace
-ENV NODE_ENV=production
 
 COPY --from=build /workspace /workspace
 
-EXPOSE 3000
-CMD ["node", "apps/orders/dist/main"]
+CMD ["node", "apps/orders/dist/src/main"]

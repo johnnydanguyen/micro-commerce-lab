@@ -1,6 +1,5 @@
 name: cd
 
-# CD chi chay khi CI workflow da chay xong tren nhanh main.
 on:
   workflow_run:
     workflows: [ci]
@@ -8,18 +7,54 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - prod
       image_tag:
-        description: "Optional image tag override (default: commit SHA)"
+        description: "commit SHA"
         required: false
         type: string
 
 env:
   GCP_REGION: us-central1
   AR_REPOSITORY: micro-commerce
-  TF_DIR: .cicd/.terraform
-  SERVICE_NAME: orders
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_tag: ${{ steps.prepare_outputs.outputs.deploy_tag }}
+      deploy_env: ${{ steps.prepare_outputs.outputs.deploy_env }}
+      backend_file: ${{ steps.prepare_outputs.outputs.backend_file }}
+    steps:
+      - name: Resolve deploy metadata
+        id: prepare_outputs
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            DEPLOY_TAG="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            DEPLOY_TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            DEPLOY_TAG="${{ github.sha }}"
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.environment }}" ]; then
+            DEPLOY_ENV="${{ inputs.environment }}"
+          else
+            DEPLOY_ENV="dev"
+          fi
+
+          BACKEND_FILE=".cicd/terraform/environments/${DEPLOY_ENV}/backend.hcl"
+
+          echo "deploy_tag=$DEPLOY_TAG" >> "$GITHUB_OUTPUT"
+          echo "deploy_env=$DEPLOY_ENV" >> "$GITHUB_OUTPUT"
+          echo "backend_file=$BACKEND_FILE" >> "$GITHUB_OUTPUT"
+
   setup-prisma:
     runs-on: ubuntu-latest
     steps:
@@ -38,10 +73,23 @@ jobs:
       - name: Generate Prisma Client (orders)
         run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
 
-  deploy-orders:
+  deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    needs: setup-prisma
+    needs: [prepare, setup-prisma]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - service_name: orders
+            tf_dir: .cicd/terraform/stacks/orders-app
+            requires_database: true
+            smoke_test: true
+          - service_name: payments-worker
+            tf_dir: .cicd/terraform/stacks/payments-app
+            requires_database: false
+            smoke_test: false
 
     steps:
       - name: Checkout source at CI SHA
@@ -68,77 +116,75 @@ jobs:
           echo "email=$SA_EMAIL" >> "$GITHUB_OUTPUT"
           echo "Using runtime service account: $SA_EMAIL"
 
-      # Setup Terraform CLI de chay init/plan/apply.
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # Tao full image URL theo immutable tag = commit SHA.
-      - name: Resolve deploy tag
-        id: deploy_tag
-        run: |
-          if [ -n "${{ inputs.image_tag }}" ]; then
-            TAG="${{ inputs.image_tag }}"
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            TAG="${{ github.event.workflow_run.head_sha }}"
-          else
-            TAG="${{ github.sha }}"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Using tag: $TAG"
-
-      # Tao full image URL theo resolved tag.
       - name: Build deploy image reference
         id: image
         run: |
-          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ steps.deploy_tag.outputs.tag }}"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ matrix.service_name }}:${{ needs.prepare.outputs.deploy_tag }}"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "Deploying image: $IMAGE"
 
-      # Can docker pull image tu Artifact Registry de chay migrate.
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
       - name: Terraform init
-        working-directory: ${{ env.TF_DIR }}
-        run: terraform init
+        working-directory: ${{ matrix.tf_dir }}
+        run: terraform init -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}"
 
-      # Plan de thay ro thay doi truoc khi apply.
-      - name: Terraform plan (orders)
-        working-directory: ${{ env.TF_DIR }}
+      - name: Validate deploy secrets
         run: |
-          terraform plan \
-            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="region=${{ env.GCP_REGION }}" \
-            -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
-            -var="service=${{ env.SERVICE_NAME }}" \
-            -var="image=${{ steps.image.outputs.image }}" \
-            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
-            -var="database_url=${{ secrets.DATABASE_URL }}" \
-            -var="redis_host=${{ secrets.REDIS_HOST }}" \
-            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
-            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
-            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
+          if [ -z "${{ secrets.REDIS_HOST }}" ]; then
+            echo "Missing required secret: REDIS_HOST"
+            exit 1
+          fi
+          if [ "${{ matrix.requires_database }}" = "true" ] && [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "Missing required secret for orders: DATABASE_URL"
+            exit 1
+          fi
 
-      # Apply tu dong sau khi CI da pass.
-      - name: Terraform apply (orders)
-        working-directory: ${{ env.TF_DIR }}
+      - name: Terraform plan
+        working-directory: ${{ matrix.tf_dir }}
         run: |
-          terraform apply -auto-approve \
-            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="region=${{ env.GCP_REGION }}" \
-            -var="artifact_repository=${{ env.AR_REPOSITORY }}" \
-            -var="service=${{ env.SERVICE_NAME }}" \
-            -var="image=${{ steps.image.outputs.image }}" \
-            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
-            -var="database_url=${{ secrets.DATABASE_URL }}" \
-            -var="redis_host=${{ secrets.REDIS_HOST }}" \
-            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
-            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
-            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
+          ARGS=(
+            "-var=project_id=${{ secrets.GCP_PROJECT_ID }}"
+            "-var=region=${{ env.GCP_REGION }}"
+            "-var=service_name=${{ matrix.service_name }}"
+            "-var=image=${{ steps.image.outputs.image }}"
+            "-var=runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}"
+            "-var=redis_host=${{ secrets.REDIS_HOST }}"
+            "-var=redis_port=${{ secrets.REDIS_PORT || '6379' }}"
+            "-var=redis_username=${{ secrets.REDIS_USERNAME }}"
+            "-var=redis_password=${{ secrets.REDIS_PASSWORD }}"
+          )
+          if [ "${{ matrix.requires_database }}" = "true" ]; then
+            ARGS+=("-var=database_url=${{ secrets.DATABASE_URL }}")
+          fi
+          terraform plan "${ARGS[@]}"
 
-      # Smoke test endpoint /health de fail som neu deploy loi runtime.
+      - name: Terraform apply
+        working-directory: ${{ matrix.tf_dir }}
+        run: |
+          ARGS=(
+            "-var=project_id=${{ secrets.GCP_PROJECT_ID }}"
+            "-var=region=${{ env.GCP_REGION }}"
+            "-var=service_name=${{ matrix.service_name }}"
+            "-var=image=${{ steps.image.outputs.image }}"
+            "-var=runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}"
+            "-var=redis_host=${{ secrets.REDIS_HOST }}"
+            "-var=redis_port=${{ secrets.REDIS_PORT || '6379' }}"
+            "-var=redis_username=${{ secrets.REDIS_USERNAME }}"
+            "-var=redis_password=${{ secrets.REDIS_PASSWORD }}"
+          )
+          if [ "${{ matrix.requires_database }}" = "true" ]; then
+            ARGS+=("-var=database_url=${{ secrets.DATABASE_URL }}")
+          fi
+          terraform apply -auto-approve "${ARGS[@]}"
+
       - name: Smoke test /health
-        working-directory: ${{ env.TF_DIR }}
+        if: ${{ matrix.smoke_test }}
+        working-directory: ${{ matrix.tf_dir }}
         run: |
           URL=$(terraform output -raw service_url)
           echo "Service URL: $URL"

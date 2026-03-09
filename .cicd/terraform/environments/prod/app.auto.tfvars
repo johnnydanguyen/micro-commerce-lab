@@ -1,0 +1,13 @@
+project_id                    = "REPLACE_PROD_PROJECT_ID"
+region                        = "us-central1"
+service_name                  = "orders"
+image                         = "us-central1-docker.pkg.dev/REPLACE_PROD_PROJECT_ID/micro-commerce/orders:latest"
+runtime_service_account_email = "REPLACE_RUNTIME_SA_EMAIL"
+database_url                  = "REPLACE_WITH_DATABASE_URL"
+redis_host                    = "REPLACE_WITH_REDIS_HOST"
+redis_port                    = "6379"
+redis_username                = ""
+redis_password                = ""
+min_instance_count            = 1
+max_instance_count            = 5
+public_invoker                = false

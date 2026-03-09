@@ -1,0 +1,13 @@
+project_id                    = "vertical-ratio-469601-r8"
+region                        = "us-central1"
+service_name                  = "orders"
+image                         = "us-central1-docker.pkg.dev/vertical-ratio-469601-r8/micro-commerce/orders:latest"
+runtime_service_account_email = "micro-commerce-lab@vertical-ratio-469601-r8.iam.gserviceaccount.com"
+database_url                  = "REPLACE_WITH_DATABASE_URL"
+redis_host                    = "REPLACE_WITH_REDIS_HOST"
+redis_port                    = "6379"
+redis_username                = ""
+redis_password                = ""
+min_instance_count            = 0
+max_instance_count            = 2
+public_invoker                = true

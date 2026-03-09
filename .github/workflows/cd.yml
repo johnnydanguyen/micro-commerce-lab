@@ -84,10 +84,12 @@ jobs:
         include:
           - service_name: orders
             tf_dir: .cicd/terraform/stacks/orders-app
+            tf_state_prefix: orders-app
             requires_database: true
             smoke_test: true
           - service_name: payments-worker
             tf_dir: .cicd/terraform/stacks/payments-app
+            tf_state_prefix: payments-app
             requires_database: false
             smoke_test: false
 
@@ -131,7 +133,10 @@ jobs:
 
       - name: Terraform init
         working-directory: ${{ matrix.tf_dir }}
-        run: terraform init -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}"
+        run: |
+          terraform init \
+            -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}" \
+            -backend-config="prefix=micro-commerce/${{ needs.prepare.outputs.deploy_env }}/${{ matrix.tf_state_prefix }}"
 
       - name: Validate deploy secrets
         run: |

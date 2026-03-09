@@ -18,9 +18,7 @@ RUN pnpm --filter payments-worker build
 
 FROM node:20-alpine AS runtime
 WORKDIR /workspace
-ENV NODE_ENV=production
 
 COPY --from=build /workspace /workspace
 
-EXPOSE 3001
 CMD ["node", "apps/payments-worker/dist/src/main.js"]

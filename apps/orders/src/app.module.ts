@@ -3,7 +3,6 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ORDER_REPOSITORY } from './infra/tokens';
 import { OrdersController } from './orders.controller';
-import { ConfigModule } from '@nestjs/config';
 import { IdempotencyInterceptor } from './infra/idempotency.interceptor';
 import { IdempotencyService } from './infra/idempotency.service';
 import { QueuesModule } from './queues/queues.module';
@@ -19,10 +18,6 @@ import { ExpressAdapter } from '@bull-board/express';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
     InfraModule,
     QueuesModule,
     HttpModule,

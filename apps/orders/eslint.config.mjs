@@ -26,7 +26,7 @@ export default tseslint.config(
   },
   {
     rules: {
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         {

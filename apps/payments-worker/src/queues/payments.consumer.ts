@@ -4,7 +4,7 @@ import axios from 'axios';
 
 @Processor('payments')
 export class PaymentsConsumer extends WorkerHost {
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(job: Job<unknown, unknown, string>): Promise<unknown> {
     switch (job.name) {
       case 'process-payment': {
         const { orderId, totalCents } = job.data as {

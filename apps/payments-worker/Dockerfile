@@ -21,4 +21,4 @@ WORKDIR /workspace
 
 COPY --from=build /workspace /workspace
 
-CMD ["node", "apps/payments-worker/dist/src/main.js"]
+CMD ["node", "apps/payments-worker/dist/main"]

@@ -14,6 +14,12 @@ provider "google" {
   region  = var.region
 }
 
+resource "google_project_service" "cloud_run_api" {
+  project            = var.project_id
+  service            = "run.googleapis.com"
+  disable_on_destroy = false
+}
+
 module "payments_app" {
   source                        = "../../modules/app-cloud-run"
   service_name                  = var.service_name
@@ -31,4 +37,6 @@ module "payments_app" {
     REDIS_USERNAME = var.redis_username
     REDIS_PASSWORD = var.redis_password
   }
+
+  depends_on = [google_project_service.cloud_run_api]
 }

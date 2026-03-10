@@ -40,6 +40,11 @@ variable "redis_password" {
   sensitive = true
 }
 
+variable "orders_service_url" {
+  type    = string
+  default = ""
+}
+
 variable "min_instance_count" {
   type    = number
   default = 1

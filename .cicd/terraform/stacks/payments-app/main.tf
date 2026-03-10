@@ -32,6 +32,7 @@ module "payments_app" {
 
   env_vars = {
     NODE_ENV       = "production"
+    ORDERS_SERVICE_URL = var.orders_service_url
     REDIS_HOST     = var.redis_host
     REDIS_PORT     = var.redis_port
     REDIS_USERNAME = var.redis_username

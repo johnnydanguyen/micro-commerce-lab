@@ -73,26 +73,12 @@ jobs:
       - name: Generate Prisma Client (orders)
         run: pnpm --filter orders exec prisma generate --schema prisma/schema.prisma
 
-  deploy:
+  deploy_orders:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     needs: [prepare, setup-prisma]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      max-parallel: 4
-      matrix:
-        include:
-          - service_name: orders
-            tf_dir: .cicd/terraform/stacks/orders-app
-            tf_state_prefix: orders-app
-            requires_database: true
-            smoke_test: true
-          - service_name: payments-worker
-            tf_dir: .cicd/terraform/stacks/payments-app
-            tf_state_prefix: payments-app
-            requires_database: false
-            smoke_test: false
-
+    outputs:
+      service_url: ${{ steps.orders_output.outputs.service_url }}
     steps:
       - name: Checkout source at CI SHA
         uses: actions/checkout@v4
@@ -124,19 +110,12 @@ jobs:
       - name: Build deploy image reference
         id: image
         run: |
-          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ matrix.service_name }}:${{ needs.prepare.outputs.deploy_tag }}"
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/orders:${{ needs.prepare.outputs.deploy_tag }}"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "Deploying image: $IMAGE"
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
-
-      - name: Terraform init
-        working-directory: ${{ matrix.tf_dir }}
-        run: |
-          terraform init \
-            -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}" \
-            -backend-config="prefix=micro-commerce/${{ needs.prepare.outputs.deploy_env }}/${{ matrix.tf_state_prefix }}"
 
       - name: Validate deploy secrets
         run: |
@@ -144,53 +123,147 @@ jobs:
             echo "Missing required secret: REDIS_HOST"
             exit 1
           fi
-          if [ "${{ matrix.requires_database }}" = "true" ] && [ -z "${{ secrets.DATABASE_URL }}" ]; then
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
             echo "Missing required secret for orders: DATABASE_URL"
             exit 1
           fi
 
-      - name: Terraform plan
-        working-directory: ${{ matrix.tf_dir }}
+      - name: Terraform init
+        working-directory: .cicd/terraform/stacks/orders-app
         run: |
-          ARGS=(
-            "-var=project_id=${{ secrets.GCP_PROJECT_ID }}"
-            "-var=region=${{ env.GCP_REGION }}"
-            "-var=service_name=${{ matrix.service_name }}"
-            "-var=image=${{ steps.image.outputs.image }}"
-            "-var=runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}"
-            "-var=redis_host=${{ secrets.REDIS_HOST }}"
-            "-var=redis_port=${{ secrets.REDIS_PORT || '6379' }}"
-            "-var=redis_username=${{ secrets.REDIS_USERNAME }}"
-            "-var=redis_password=${{ secrets.REDIS_PASSWORD }}"
-          )
-          if [ "${{ matrix.requires_database }}" = "true" ]; then
-            ARGS+=("-var=database_url=${{ secrets.DATABASE_URL }}")
-          fi
-          terraform plan "${ARGS[@]}"
+          terraform init \
+            -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}" \
+            -backend-config="prefix=micro-commerce/${{ needs.prepare.outputs.deploy_env }}/orders-app"
+
+      - name: Terraform plan
+        working-directory: .cicd/terraform/stacks/orders-app
+        run: |
+          terraform plan \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="service_name=orders" \
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="database_url=${{ secrets.DATABASE_URL }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
 
       - name: Terraform apply
-        working-directory: ${{ matrix.tf_dir }}
+        working-directory: .cicd/terraform/stacks/orders-app
         run: |
-          ARGS=(
-            "-var=project_id=${{ secrets.GCP_PROJECT_ID }}"
-            "-var=region=${{ env.GCP_REGION }}"
-            "-var=service_name=${{ matrix.service_name }}"
-            "-var=image=${{ steps.image.outputs.image }}"
-            "-var=runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}"
-            "-var=redis_host=${{ secrets.REDIS_HOST }}"
-            "-var=redis_port=${{ secrets.REDIS_PORT || '6379' }}"
-            "-var=redis_username=${{ secrets.REDIS_USERNAME }}"
-            "-var=redis_password=${{ secrets.REDIS_PASSWORD }}"
-          )
-          if [ "${{ matrix.requires_database }}" = "true" ]; then
-            ARGS+=("-var=database_url=${{ secrets.DATABASE_URL }}")
-          fi
-          terraform apply -auto-approve "${ARGS[@]}"
+          terraform apply -auto-approve \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="service_name=orders" \
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="database_url=${{ secrets.DATABASE_URL }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
 
-      - name: Smoke test /health
-        if: ${{ matrix.smoke_test }}
-        working-directory: ${{ matrix.tf_dir }}
+      - name: Capture orders service URL
+        id: orders_output
+        working-directory: .cicd/terraform/stacks/orders-app
         run: |
           URL=$(terraform output -raw service_url)
-          echo "Service URL: $URL"
-          curl -fsS "$URL/health"
+          echo "service_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Orders service URL: $URL"
+
+      - name: Smoke test /health
+        working-directory: .cicd/terraform/stacks/orders-app
+        run: |
+          curl -fsS "${{ steps.orders_output.outputs.service_url }}/health"
+
+  deploy_payments:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: [prepare, setup-prisma, deploy_orders]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source at CI SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve runtime service account
+        id: runtime_sa
+        run: |
+          if [ -n "${{ secrets.RUNTIME_SA_EMAIL }}" ]; then
+            SA_EMAIL="${{ secrets.RUNTIME_SA_EMAIL }}"
+          else
+            SA_EMAIL="$(gcloud config get-value account)"
+          fi
+          echo "email=$SA_EMAIL" >> "$GITHUB_OUTPUT"
+          echo "Using runtime service account: $SA_EMAIL"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Build deploy image reference
+        id: image
+        run: |
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/payments-worker:${{ needs.prepare.outputs.deploy_tag }}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Deploying image: $IMAGE"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Validate deploy secrets
+        run: |
+          if [ -z "${{ secrets.REDIS_HOST }}" ]; then
+            echo "Missing required secret: REDIS_HOST"
+            exit 1
+          fi
+          if [ -z "${{ needs.deploy_orders.outputs.service_url }}" ]; then
+            echo "Missing required output from deploy_orders: service_url"
+            exit 1
+          fi
+
+      - name: Terraform init
+        working-directory: .cicd/terraform/stacks/payments-app
+        run: |
+          terraform init \
+            -backend-config="${{ github.workspace }}/${{ needs.prepare.outputs.backend_file }}" \
+            -backend-config="prefix=micro-commerce/${{ needs.prepare.outputs.deploy_env }}/payments-app"
+
+      - name: Terraform plan
+        working-directory: .cicd/terraform/stacks/payments-app
+        run: |
+          terraform plan \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="service_name=payments-worker" \
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="orders_service_url=${{ needs.deploy_orders.outputs.service_url }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
+
+      - name: Terraform apply
+        working-directory: .cicd/terraform/stacks/payments-app
+        run: |
+          terraform apply -auto-approve \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="service_name=payments-worker" \
+            -var="image=${{ steps.image.outputs.image }}" \
+            -var="runtime_service_account_email=${{ steps.runtime_sa.outputs.email }}" \
+            -var="orders_service_url=${{ needs.deploy_orders.outputs.service_url }}" \
+            -var="redis_host=${{ secrets.REDIS_HOST }}" \
+            -var="redis_port=${{ secrets.REDIS_PORT || '6379' }}" \
+            -var="redis_username=${{ secrets.REDIS_USERNAME }}" \
+            -var="redis_password=${{ secrets.REDIS_PASSWORD }}"
